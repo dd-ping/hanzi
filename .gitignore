@@ -1,0 +1,23 @@
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# ---- 构建产物 ----
+build/
+dist/
+*.spec
+
+# ---- 运行输出 ----
+output/
+
+# ---- 字库数据（9534 个小文件不入库；仓库内置 hanzi_data.zip + pinyin.json，可用 preload_full.py 重建）----
+hanzi_data/
+
+# ---- 临时/测试文件 ----
+_test_*.py
+_test_out/
+*.log

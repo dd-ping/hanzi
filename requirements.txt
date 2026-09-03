@@ -1,0 +1,4 @@
+# 汉字字帖 A4 生成器 依赖
+pillow>=10.0
+rapidocr_onnxruntime>=1.2.0
+onnxruntime>=1.15.0

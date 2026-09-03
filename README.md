@@ -1,2 +1,111 @@
-# hanzi
-汉字练习生成器
+# 汉字字帖 A4 生成器（v1.2）
+
+一个带图形界面的汉字字帖生成程序：输入汉字（或从图片识别文字），一键生成带笔顺的
+田字格 A4 字帖 PDF，并支持分页预览。
+
+**v1.2 界面升级**（面向用户优化）：
+- **标签字上方显示拼音**（带声调，如 táng），内置 2.6 万+ 字离线拼音库，可开关
+- **打印预览 + 页边距调整**：可调上/下/左/右边距（mm），预览中红色虚线标出打印区域，
+  底部显示纸张规格（A4 210×297mm）、边距、每页行数与总页数；边距真实作用于导出的 PDF
+- **先预览、后导出**：点"预览字帖"先看效果，满意后再"导出 PDF"，参数可反复调整重新预览
+- **PDF 预览体验升级**：放大 / 缩小 / 适合窗口 / 实际大小，Ctrl+滚轮缩放、
+  放大后拖拽平移、普通滚轮翻页
+- **独立预览子窗口**：预览与操作分离——主窗口专注输入与参数，预览内容
+  （工具栏 + 页面 + 打印信息）在**可自由拖动的独立子窗口**中展示，关闭后可随时重新打开
+- **标签区布局修正**：拼音→字→笔数 自上而下精确对齐（测量驱动 + 绘制偏移补偿），
+  彻底解决"标签字与笔数重叠"问题
+- **自定义圆角按钮**：悬停、按下、禁用状态都有反馈，告别系统默认样式
+- **动态字库加载**：启动界面秒开（约 3.5s），字库按需从内嵌 zip 加载，后台自动补全缓存
+- **每个字统一占两行田字格**：可勾选让笔画少的字也自动补一整行空白练习格，排版对齐两行
+- 步骤化引导：①输入汉字 → ②生成参数 / 打印设置 → ③预览 / 导出
+- 实时字数统计 + 离线字库覆盖提示、生成/识别进度条、一键填入示例
+
+## 功能
+
+- **输入汉字生成**：直接在文本框输入要练习的汉字，可多字、可换行。
+- **图片识别采集**：选择一张图片，自动 OCR 识别其中的汉字并填入输入框（可选自动去重）。
+- **一键生成 PDF**：A4 纸排版，每行田字格铺满；每字前 N 格为笔顺演示
+  （当前笔红色、已写笔画黑色、未写笔画浅灰），其余为空白练习格。
+  - 笔画超过一行自动换行显示（如 17 笔的"擦"分两行）。
+  - 练习格不足时自动补一整行练习格。
+  - 可勾选"每个字统一占两行田字格"：笔画少的字也自动补一整行空白练习格，
+    所有字排版对齐两行（默认不勾选，按笔画数自动）。
+- **分页预览**：生成后逐页预览，可翻页、可直接打开 PDF。
+
+## 文件说明
+
+| 文件 | 作用 |
+|---|---|
+| `app.py` | 图形界面主程序 |
+| `zitie_core.py` | 字帖生成核心（笔画下载、田字格排版、PDF 输出） |
+| `ocr_engine.py` | 图片 OCR 识别（rapidocr，中英文） |
+| `pinyin.json` | 内置离线拼音库（2.6 万+ 字，带声调） |
+| `hanzi_data.zip` | 内置完整离线字库包（9534 个汉字笔画数据） |
+| `preload_full.py` | 从国内镜像（npmmirror）重建完整字库 `hanzi_data` |
+| `preload_pinyin.py` | 重建 `pinyin.json` 拼音库 |
+| `_make_zip.py` | 把 `hanzi_data` 打成 `hanzi_data.zip`（重新打包 exe 前用） |
+| `requirements.txt` | 依赖清单 |
+| `run.bat` | 源码方式一键启动（双击即可） |
+
+## 使用方法
+
+### 方式一：直接使用打包版（推荐，可分发）
+
+`dist\汉字字帖生成器_v1.2.exe` 是**免安装的单文件程序**（约 111MB），已内置 Python 解释器、
+全部依赖、OCR 模型，以及**完整离线字库（9534 个汉字笔画数据）**。
+
+**双击即可运行，无需安装 Python、无需安装任何库、绝大多数汉字离线即可生成**。
+- **离线字库**：内置 9534 个汉字（覆盖 GB2312 全部常用字及大量生僻字），
+  如"空、新、晚、擦、赢、鼎"等都可直接生成，**不局限于一年级、不依赖网络**
+- **智能下载**：遇到离线字库没有的字，自动从**国内稳定镜像源**（jsdelivr 国内节点 →
+  unpkg → GitHub 兜底）联网下载，**下载成功的字自动写入离线库**，下次直接离线使用
+- 把这个 exe 拷贝到任何 Windows 电脑都能直接使用
+
+### 方式二：从源码运行
+
+1. 安装依赖：`pip install -r requirements.txt`
+2. **双击 `run.bat` 启动**（或命令行执行 `python app.py`）。
+3. 左侧"输入汉字"框输入文字；或点"从图片识别文字…"选择图片自动填入。
+4. 按需调整参数：标题、每页行数、每行格数；**打印设置**里的页边距
+   （上/下/左/右 mm，可勾选"预览中显示页边距线"看打印区域）；"标签字上方显示拼音"开关；
+   以及"每个字统一占两行田字格"开关。
+5. 点 **"预览字帖"** 先在独立预览窗口查看每一页的效果（可放大缩小、拖拽平移、滚轮翻页，
+   底部会显示纸张规格与页边距信息）。
+6. 满意后点 **"导出 PDF"**，选择保存位置即可（参数或边距改过会自动按最新重新渲染）。
+7. 点"打开 PDF"可调用系统阅读器查看或直接打印。
+
+## 依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+首次生成某字时会自动联网下载该字的笔画数据（之后本地缓存，不再下载）。
+
+## 重新打包 exe（可选）
+
+字库以**单 zip**（`hanzi_data.zip`）内嵌，启动时无需解压 9000+ 个小文件，界面秒开：
+
+```bash
+python _make_zip.py                       # 把 hanzi_data 打成 hanzi_data.zip（仅需重打一次）
+pip install pyinstaller
+python -m PyInstaller --noconfirm --onefile --windowed --name 汉字字帖生成器_v1.2 \
+  --add-data "hanzi_data.zip;." \
+  --add-data "pinyin.json;." \
+  --collect-data rapidocr_onnxruntime --collect-binaries rapidocr_onnxruntime \
+  --hidden-import onnxruntime --hidden-import cv2 --hidden-import pyclipper \
+  --hidden-import shapely --hidden-import yaml \
+  --hidden-import rapidocr_onnxruntime.ch_ppocr_v3_det.text_detect \
+  --hidden-import rapidocr_onnxruntime.ch_ppocr_v3_rec.text_recognize \
+  --hidden-import rapidocr_onnxruntime.ch_ppocr_v2_cls.text_cls \
+  app.py
+```
+
+提示：如需扩充内置字库（覆盖更多生僻字），先运行
+`python preload_full.py` 从国内镜像（npmmirror）拉取完整字库包解压到 `hanzi_data`，
+再执行 `python _make_zip.py` 生成 zip，最后按上面命令打包。
+
+## 备注
+
+- 笔画数据来自 [hanzi-writer-data](https://github.com/chanind/hanzi-writer-data)（MIT 许可）。
+- OCR 引擎为 [RapidOCR](https://github.com/RapidAI/RapidOCR)，首次识别需加载模型，约数秒。
