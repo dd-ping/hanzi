@@ -1,6 +1,8 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
-汉字字帖 A4 生成器  v1.3.1
+汉字字帖 A4 生成器  v1.3.2
+v1.3.2 新增：
+  - 笔画显示样式：灰色描红（默认，笔画统一灰色，步骤清晰）/ 红黑教学（已写黑、当前红、未写浅灰）
 v1.3.1 新增：
   - 默认排版改为"每个字统一占两行田字格"（对齐排版，即两行字帖版式）
   - 田字格颜色切换：红 / 蓝 / 黑 / 绿（格子边框+辅助线随颜色，笔顺红笔不变）
@@ -35,7 +37,7 @@ from PIL import Image, ImageDraw, ImageTk
 import ocr_engine as ocr
 import zitie_core as core
 
-APP_VERSION = "v1.3.1"
+APP_VERSION = "v1.3.2"
 APP_NAME = "汉字字帖生成器"
 
 # ---- 字帖类型（参考 an2.net 练字工具集）----
@@ -312,6 +314,7 @@ class ZitieApp:
         self.var_show_pinyin = tk.BooleanVar(value=True)
         self.var_align_rows = tk.BooleanVar(value=True)  # 默认统一两行对齐（图2排版）
         self.var_grid_color = tk.StringVar(value=core.DEFAULT_GRID_COLOR)
+        self.var_stroke_style = tk.StringVar(value="灰色描红")
 
         grid = ttk.Frame(param_panel, style="Panel.TFrame")
         grid.pack(fill="x")
@@ -335,15 +338,24 @@ class ZitieApp:
                     width=5).pack(side="left", padx=(4, 14))
         ttk.Label(row1, text="每行格数：", style="Body.TLabel").pack(side="left")
         ttk.Spinbox(row1, from_=5, to=20, textvariable=self.var_grids,
-                    width=5).pack(side="left", padx=(4, 14))
-        ttk.Label(row1, text="格子颜色：", style="Body.TLabel").pack(side="left")
-        ttk.Combobox(row1, textvariable=self.var_grid_color,
+                    width=5).pack(side="left", padx=(4, 0))
+
+        row1b = ttk.Frame(grid, style="Panel.TFrame")
+        row1b.grid(row=3, column=0, columnspan=2, sticky="we", pady=2)
+        row1b._panel_bg = COLOR_PANEL
+        ttk.Label(row1b, text="格子颜色：", style="Body.TLabel").pack(side="left")
+        ttk.Combobox(row1b, textvariable=self.var_grid_color,
                      values=list(core.GRID_COLORS.keys()),
                      state="readonly", width=6, font=("Microsoft YaHei", 9)
-                     ).pack(side="left", padx=(4, 0))
+                     ).pack(side="left", padx=(4, 14))
+        ttk.Label(row1b, text="笔画：", style="Body.TLabel").pack(side="left")
+        self.cmb_stroke = ttk.Combobox(row1b, textvariable=self.var_stroke_style,
+                     values=list(core.STROKE_STYLE_NAMES.keys()),
+                     state="readonly", width=8, font=("Microsoft YaHei", 9))
+        self.cmb_stroke.pack(side="left", padx=(4, 0))
 
         row2 = ttk.Frame(grid, style="Panel.TFrame")
-        row2.grid(row=3, column=0, columnspan=2, sticky="we", pady=2)
+        row2.grid(row=4, column=0, columnspan=2, sticky="we", pady=2)
         row2._panel_bg = COLOR_PANEL
         ttk.Label(row2, text="页边距mm：", style="Body.TLabel").pack(side="left")
         for text, var in (("上", self.var_margin_t), ("下", self.var_margin_b),
@@ -355,7 +367,7 @@ class ZitieApp:
 
         # 按字帖类型动态显示的参数行
         row_extra = ttk.Frame(grid, style="Panel.TFrame")
-        row_extra.grid(row=4, column=0, columnspan=2, sticky="we", pady=2)
+        row_extra.grid(row=5, column=0, columnspan=2, sticky="we", pady=2)
         row_extra._panel_bg = COLOR_PANEL
         self.lb_repeat = ttk.Label(row_extra, text="每词重复行数：", style="Body.TLabel")
         self.lb_repeat.grid(row=0, column=0, sticky="w")
@@ -374,15 +386,15 @@ class ZitieApp:
         self._on_mode_change()  # 初始化显隐
 
         ttk.Checkbutton(grid, text="图片识别时自动去重（推荐）",
-                        variable=self.var_dedup).grid(row=5, column=0, columnspan=2, sticky="w", pady=(3, 0))
+                        variable=self.var_dedup).grid(row=6, column=0, columnspan=2, sticky="w", pady=(3, 0))
         ttk.Checkbutton(grid, text="标签字上方显示拼音（推荐）",
-                        variable=self.var_show_pinyin).grid(row=6, column=0, columnspan=2, sticky="w")
+                        variable=self.var_show_pinyin).grid(row=7, column=0, columnspan=2, sticky="w")
         ttk.Checkbutton(grid, text="预览中显示页边距线（打印预览）",
                         variable=self.var_show_margin,
-                        command=lambda: self._redraw_preview()).grid(row=7, column=0, columnspan=2, sticky="w")
+                        command=lambda: self._redraw_preview()).grid(row=8, column=0, columnspan=2, sticky="w")
         ttk.Checkbutton(grid, text="每个字统一占两行田字格（笔画少的自动补一整行练习格）",
                         variable=self.var_align_rows,
-                        command=lambda: self._update_printinfo()).grid(row=8, column=0, columnspan=2, sticky="w")
+                        command=lambda: self._update_printinfo()).grid(row=9, column=0, columnspan=2, sticky="w")
         ttk.Label(param_panel,
                   text="页边距会真实作用于导出的 PDF；笔画超出一行自动换行，练习格不足自动补行。",
                   style="Muted.TLabel", wraplength=480, justify="left").pack(anchor="w", pady=(6, 0))
@@ -549,6 +561,8 @@ class ZitieApp:
         # OCR 仅汉字模式可用
         if self._ocr_btn is not None:
             self._ocr_btn.set_state("normal" if mode == MODE_HANZI else "disabled")
+        # 笔画样式仅汉字模式可用
+        self.cmb_stroke.configure(state="readonly" if mode == MODE_HANZI else "disabled")
         self._update_input_stats()
         if hasattr(self, "var_printinfo"):
             self._update_printinfo()
@@ -612,7 +626,8 @@ class ZitieApp:
                 max(1, min(6, self.var_repeat.get())),
                 max(2, min(8, self.var_groups.get())),
                 self.var_blank_kind.get(),
-                self.var_grid_color.get())
+                self.var_grid_color.get(),
+                self.var_stroke_style.get())
 
     def _build_paper(self, params):
         _t, _p, _g, mt, mb, ml, mr = params[:7]
@@ -687,6 +702,7 @@ class ZitieApp:
         groups = params[11]
         blank_kind = params[12]
         grid_color = params[13]
+        stroke_style = params[14]
         paper = self._build_paper(params)
         try:
             def prog(done, total, ok):
@@ -698,10 +714,13 @@ class ZitieApp:
                                      f"渲染页面 {done}/{total}"))
             fails = []
             if mode == MODE_HANZI:
+                stroke_style_key = core.STROKE_STYLE_NAMES.get(stroke_style,
+                                                               core.DEFAULT_STROKE_STYLE)
                 pages, fails = core.render_zitie(
                     items, title=title, per_page=per_page, grids_per_row=grids,
                     paper=paper, show_pinyin=show_pinyin, align_rows=align_rows,
-                    grid_color=grid_color, progress=prog)
+                    grid_color=grid_color, stroke_style=stroke_style_key,
+                    progress=prog)
             elif mode == MODE_TINGXIE:
                 pages = core.render_tingxie(items, title=title, per_page=per_page,
                                             grids_per_row=grids, repeat=repeat,
@@ -1066,3 +1085,4 @@ if __name__ == "__main__":
         selftest()
         sys.exit(0)
     main()
+

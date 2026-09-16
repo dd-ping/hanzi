@@ -180,6 +180,14 @@ GRID_COLORS = {
 }
 DEFAULT_GRID_COLOR = "红色"
 
+# 笔画显示样式
+STROKE_STYLE_GRAY = "gray"   # 灰色描红：全部笔画统一灰色（步骤仍可辨）
+STROKE_STYLE_RED = "red"     # 红黑教学：已完成黑 / 当前笔红 / 未写浅灰
+STROKE_STYLE_NAMES = {"灰色描红": STROKE_STYLE_GRAY, "红黑教学": STROKE_STYLE_RED}
+DEFAULT_STROKE_STYLE = STROKE_STYLE_GRAY
+C_STROKE_GRAY = (175, 175, 175)          # 灰色描红笔画
+C_STROKE_GRAY_FUTURE = (228, 228, 228)   # 灰色模式下未写笔画的淡显
+
 
 def _grid_colors(name):
     """按名称取 (border, aux) 田字格配色，未知名称回退红色"""
@@ -473,8 +481,10 @@ def _text_metrics(draw, text, font):
 
 
 def render_stroke_row_partial(layout, ch, start, label_show=False, show_pinyin=True,
-                              grid_color=DEFAULT_GRID_COLOR):
-    """渲染一行：从第 start 笔开始连续 grids_per_row 个格子"""
+                              grid_color=DEFAULT_GRID_COLOR,
+                              stroke_style=DEFAULT_STROKE_STYLE):
+    """渲染一行：从第 start 笔开始连续 grids_per_row 个格子
+    stroke_style: 'gray' 灰色描红（统一灰）/ 'red' 红黑教学（已写黑、当前红、未写浅灰）"""
     border, aux = _grid_colors(grid_color)
     row_w = layout.content_w
     row_h = layout.row_h
@@ -545,17 +555,25 @@ def render_stroke_row_partial(layout, ch, start, label_show=False, show_pinyin=T
         si = start + idx
         if si >= n:
             continue  # 空白练习格
-        # 先画非当前笔画（已完成黑色 / 未完成浅灰），红色最后画确保最上层
-        for i in range(n):
-            if i == si:
-                continue
-            color = C_BLACK if i < si else C_GRAY
+        if stroke_style == STROKE_STYLE_GRAY:
+            # 灰色描红：已写笔画中灰、未写笔画淡灰淡显，步骤清晰且整体灰色调
+            for i in range(n):
+                color = C_STROKE_GRAY if i <= si else C_STROKE_GRAY_FUTURE
+                shifted = [[(px + gx + 4, py + cy + 4) for px, py in sp]
+                           for sp in transformed[i]]
+                fill_stroke(draw, shifted, color)
+        else:
+            # 红黑教学：已完成黑色 / 未完成浅灰，红色最后画确保最上层
+            for i in range(n):
+                if i == si:
+                    continue
+                color = C_BLACK if i < si else C_GRAY
+                shifted = [[(px + gx + 4, py + cy + 4) for px, py in sp]
+                           for sp in transformed[i]]
+                fill_stroke(draw, shifted, color)
             shifted = [[(px + gx + 4, py + cy + 4) for px, py in sp]
-                       for sp in transformed[i]]
-            fill_stroke(draw, shifted, color)
-        shifted = [[(px + gx + 4, py + cy + 4) for px, py in sp]
-                   for sp in transformed[si]]
-        fill_stroke(draw, shifted, C_RED)
+                       for sp in transformed[si]]
+            fill_stroke(draw, shifted, C_RED)
     return img
 
 
@@ -579,7 +597,8 @@ def render_practice_row(layout, grid_color=DEFAULT_GRID_COLOR):
 
 
 def render_char_block(layout, ch, show_pinyin=True, align_rows=False,
-                      grid_color=DEFAULT_GRID_COLOR):
+                      grid_color=DEFAULT_GRID_COLOR,
+                      stroke_style=DEFAULT_STROKE_STYLE):
     """渲染一个字块：笔顺多行显示，末尾练习格不足时补练习行。
     align_rows=True：所有字统一至少占两行（笔画少的多给一整行空白练习格）"""
     n = get_stroke_count(ch)
@@ -595,7 +614,8 @@ def render_char_block(layout, ch, show_pinyin=True, align_rows=False,
         row_img = render_stroke_row_partial(layout, ch, r * gpr,
                                             label_show=(r == 0),
                                             show_pinyin=show_pinyin,
-                                            grid_color=grid_color)
+                                            grid_color=grid_color,
+                                            stroke_style=stroke_style)
         block.paste(row_img, (0, r * layout.row_h))
     for r in range(stroke_rows, lines):
         block.paste(render_practice_row(layout, grid_color=grid_color),
@@ -604,7 +624,8 @@ def render_char_block(layout, ch, show_pinyin=True, align_rows=False,
 
 
 def render_page(layout, chars_page, page_num, total_pages, title, show_pinyin=True,
-                align_rows=False, grid_color=DEFAULT_GRID_COLOR):
+                align_rows=False, grid_color=DEFAULT_GRID_COLOR,
+                stroke_style=DEFAULT_STROKE_STYLE):
     img = Image.new("RGB", (layout.w, layout.h), C_WHITE)
     draw = ImageDraw.Draw(img)
     font_title = load_font(36)
@@ -620,7 +641,8 @@ def render_page(layout, chars_page, page_num, total_pages, title, show_pinyin=Tr
     y = layout.margin_t + layout.title_h - 20
     for ch in chars_page:
         block = render_char_block(layout, ch, show_pinyin=show_pinyin,
-                                  align_rows=align_rows, grid_color=grid_color)
+                                  align_rows=align_rows, grid_color=grid_color,
+                                  stroke_style=stroke_style)
         img.paste(block, (layout.margin_l, y))
         y += block.size[1]
     return img
@@ -631,7 +653,8 @@ def render_zitie(chars, title="汉字字帖", per_page=DEFAULT_PER_PAGE,
                  grids_per_row=DEFAULT_GRIDS_PER_ROW,
                  min_practice=DEFAULT_MIN_PRACTICE,
                  paper=None, show_pinyin=True, align_rows=False,
-                 grid_color=DEFAULT_GRID_COLOR, progress=None):
+                 grid_color=DEFAULT_GRID_COLOR,
+                 stroke_style=DEFAULT_STROKE_STYLE, progress=None):
     """
     只渲染页面图片（不写 PDF）。
     - 返回: (pages_img 列表[PIL], 失败字列表)
@@ -657,7 +680,7 @@ def render_zitie(chars, title="汉字字帖", per_page=DEFAULT_PER_PAGE,
     for p, page_chars in enumerate(pages_chars):
         img = render_page(layout, page_chars, p + 1, n_pages, title,
                           show_pinyin=show_pinyin, align_rows=align_rows,
-                          grid_color=grid_color)
+                          grid_color=grid_color, stroke_style=stroke_style)
         pages_img.append(img)
         if progress:
             progress(p + 1, n_pages, 0)
