@@ -5,7 +5,6 @@ OCR 图片识字模块
 - 首次调用会加载模型（约需几秒），之后复用全局引擎
 """
 import threading
-from rapidocr_onnxruntime import RapidOCR
 
 _engine = None
 _engine_lock = threading.Lock()
@@ -13,13 +12,14 @@ _is_loading = False
 
 
 def get_engine():
-    """获取（或懒加载）全局 OCR 引擎"""
+    """获取（或懒加载）全局 OCR 引擎；rapidocr 库在首次识别时才导入，加快启动"""
     global _engine, _is_loading
     if _engine is None:
         with _engine_lock:
             if _engine is None:
                 _is_loading = True
                 try:
+                    from rapidocr_onnxruntime import RapidOCR
                     _engine = RapidOCR()
                 finally:
                     _is_loading = False

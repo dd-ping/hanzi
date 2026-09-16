@@ -650,6 +650,207 @@ def pages_to_pdf(pages_img, out_pdf, resolution=300.0):
                       append_images=pages_img[1:])
 
 
+# ============ 新增功能：看拼音写词语 / 四线三格拼音 / 空白模板 ============
+def _grid_size(layout):
+    """当前排版下的田字格边长"""
+    avail_w = layout.content_w - layout.label_w - 24
+    gs = int((avail_w - (layout.grids_per_row - 1) * layout.gap)
+             / layout.grids_per_row)
+    return min(gs, layout.row_h - 20)
+
+
+def _page_base(layout, title, page_num, total_pages):
+    """新建一页画布，画好标题/页码/分隔线，返回 (img, draw, 首个内容行 y)"""
+    img = Image.new("RGB", (layout.w, layout.h), C_WHITE)
+    draw = ImageDraw.Draw(img)
+    draw.text((layout.margin_l, 20), title, fill=C_BLACK, font=load_font(36))
+    page_info = f"第 {page_num}/{total_pages} 页"
+    bbox = draw.textbbox((0, 0), page_info, font=load_font(22))
+    draw.text((layout.w - layout.margin_r - (bbox[2] - bbox[0]), 30),
+              page_info, fill=(100, 100, 100), font=load_font(22))
+    draw.line([(layout.margin_l, 72), (layout.w - layout.margin_r, 72)],
+              fill=C_RED, width=2)
+    y = layout.margin_t + layout.title_h - 20
+    return img, draw, y
+
+
+def _render_tingxie_word_block(layout, word, repeat, first_has_pinyin=True):
+    """一个词语占 repeat 行：第 1 行 标签区拼音 + 空格田字格；重复行纯空格格"""
+    chars = list(word)
+    block = Image.new("RGB", (layout.content_w, layout.row_h * repeat), C_WHITE)
+    gs = _grid_size(layout)
+    cy = (layout.row_h - gs) // 2
+    x0 = layout.label_w + 12
+    for r in range(repeat):
+        row = Image.new("RGB", (layout.content_w, layout.row_h), C_WHITE)
+        draw = ImageDraw.Draw(row)
+        if r == 0 and first_has_pinyin:
+            syllables = [get_pinyin(c) or "?" for c in chars]
+            size = 22
+            font = None
+            need_h = gs
+            while size > 12:
+                font = load_font(size)
+                hs = [_text_metrics(draw, s, font)[1] for s in syllables]
+                ws = [_text_metrics(draw, s, font)[0] for s in syllables]
+                if max(ws) <= layout.label_w - 6 and sum(hs) + len(hs) - 1 <= gs:
+                    need_h = sum(hs) + len(hs) - 1
+                    break
+                size -= 1
+            yy = cy + max(0, (gs - need_h) // 2)
+            for s in syllables:
+                w_, h_, b1 = _text_metrics(draw, s, font)
+                draw.text(((layout.label_w - w_) / 2, yy - b1), s,
+                          fill=(85, 100, 125), font=font)
+                yy += h_ + 1
+        # 词的字数个空格田字格（从左侧开始）
+        for i in range(len(chars)):
+            gx = x0 + i * (gs + layout.gap)
+            draw_mi_grid(draw, gx, cy, gs)
+        block.paste(row, (0, r * layout.row_h))
+    return block
+
+
+def render_tingxie(words, title="看拼音写词语", per_page=DEFAULT_PER_PAGE,
+                   grids_per_row=DEFAULT_GRIDS_PER_ROW,
+                   repeat=2, paper=None, progress=None):
+    """看拼音写词语（听写纸）
+    words: 词语列表（如 ["学校", "老师"]）。每词占 repeat 行：
+    第 1 行 标签区显示带声调拼音 + 空格田字格；重复行纯空格田字格。"""
+    words = [w for w in words if w.strip()]
+    pages_words, cur, used = [], [], 0
+    for w in words:
+        if used + repeat > per_page:
+            pages_words.append(cur); cur = []; used = 0
+        cur.append(w); used += repeat
+    if cur:
+        pages_words.append(cur)
+    layout = Layout(per_page=per_page, grids_per_row=grids_per_row, paper=paper)
+    pages, n_pages = [], len(pages_words)
+    for pi, pws in enumerate(pages_words):
+        img, _d, y = _page_base(layout, title, pi + 1, n_pages)
+        for w in pws:
+            block = _render_tingxie_word_block(layout, w, repeat)
+            img.paste(block, (layout.margin_l, y))
+            y += block.size[1]
+        pages.append(img)
+        if progress:
+            progress(pi + 1, n_pages, 0)
+    return pages
+
+
+def draw_4line3grid(draw, x, y, w, h, color=C_GRID_BORDER):
+    """四线三格：顶线/上中线/基线/底线，上中下三格。基线略粗。"""
+    h3 = h / 3.0
+    for i, yy in enumerate((y, y + h3, y + 2 * h3, y + h)):
+        draw.line([(x, yy), (x + w, yy)], fill=color, width=2 if i == 2 else 1)
+    draw.line([(x, y), (x, y + h)], fill=color, width=1)
+    draw.line([(x + w, y), (x + w, y + h)], fill=color, width=1)
+
+
+def _render_pinyin_item(draw, x, y, w, h, letter, example=True, blank=2,
+                        gap=8):
+    """画一个拼音单元：1 个示例四线三格（浅灰字母描红）+ blank 个空白格。
+    返回下一个 x 位置"""
+    for i in range(1 + blank):
+        gx = x + i * (w + gap)
+        draw_4line3grid(draw, gx, y, w, h)
+        if i == 0 and example and letter:
+            font = load_font(int(h * 0.62))
+            bbox = draw.textbbox((0, 0), letter, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            asc, desc = font.getmetrics()
+            # 字母基线对齐中格下线（y + 2h/3）；上伸字母自动占上格
+            baseline = y + h * 2 / 3
+            draw.text((gx + (w - tw) / 2, baseline - asc), letter,
+                      fill=(205, 205, 205), font=font)
+    return x + (1 + blank) * (w + gap)
+
+
+def render_pinyin(items, title="拼音四线三格", per_page=DEFAULT_PER_PAGE,
+                  groups_per_row=5, blank=2, paper=None, progress=None):
+    """拼音四线三格书写练习
+    items: 拼音项列表（字母或带声调音节，如 ["a","o","e","b","p","ai"]）
+    每组 = 1 个示例格（浅灰字母）+ blank 个空白格；每行 groups_per_row 组"""
+    items = [str(i).strip() for i in items if str(i).strip()]
+    pages_items, cur, used = [], [], 0
+    for it in items:
+        if used + 1 > per_page:
+            pages_items.append(cur); cur = []; used = 0
+        cur.append(it); used += 1
+    if cur:
+        pages_items.append(cur)
+    layout = Layout(per_page=per_page, grids_per_row=DEFAULT_GRIDS_PER_ROW,
+                    paper=paper)
+    pages, n_pages = [], len(pages_items)
+    for pi, pws in enumerate(pages_items):
+        img, _d, y = _page_base(layout, title, pi + 1, n_pages)
+        for it in pws:
+            row = Image.new("RGB", (layout.content_w, layout.row_h), C_WHITE)
+            draw = ImageDraw.Draw(row)
+            # 每行 groups_per_row 组，四线三格居中
+            unit_w = layout.content_w / groups_per_row
+            gw = min(unit_w - 14, layout.row_h * 0.46)
+            gh = layout.row_h * 0.46
+            gx = 6
+            gy = (layout.row_h - gh) // 2
+            for g in range(groups_per_row):
+                gx = _render_pinyin_item(draw, gx, gy, gw, gh, it, blank=blank)
+                gx += (unit_w - (1 + blank) * (gw + 8)) / 2
+            img.paste(row, (layout.margin_l, y))
+            y += row.size[1]
+        pages.append(img)
+        if progress:
+            progress(pi + 1, n_pages, 0)
+    return pages
+
+
+def draw_tian_grid(draw, x, y, size):
+    """田字格：外框 + 横竖中线（无对角虚线）"""
+    draw.rectangle([x, y, x + size, y + size], outline=C_GRID_BORDER, width=2)
+    draw_dashed(draw, x, y + size // 2, x + size, y + size // 2, C_GRID_AUX,
+                dash=9, gap=5, width=2)
+    draw_dashed(draw, x + size // 2, y, x + size // 2, y + size, C_GRID_AUX,
+                dash=9, gap=5, width=2)
+
+
+def render_blank(kind="mi", title="空白字帖模板", per_page=DEFAULT_PER_PAGE,
+                 grids_per_row=DEFAULT_GRIDS_PER_ROW,
+                 pages_count=1, paper=None):
+    """空白模板：kind = 'mi' 米字格 / 'tian' 田字格 / 'pinyin' 四线三格"""
+    layout = Layout(per_page=per_page, grids_per_row=grids_per_row, paper=paper)
+    pages = []
+    for pi in range(pages_count):
+        img, draw, y = _page_base(layout, title, pi + 1, pages_count)
+        if kind == "pinyin":
+            # 整页四线三格行
+            row_h = layout.row_h
+            groups = max(2, int(layout.content_w / 170))
+            unit_w = layout.content_w / groups
+            gw = min(unit_w - 14, row_h * 0.5)
+            gh = row_h * 0.5
+            for r in range(per_page):
+                gy = y + r * row_h + (row_h - gh) // 2
+                gx = 6
+                for _g in range(groups):
+                    draw_4line3grid(draw, gx, gy, gw, gh)
+                    gx += unit_w
+        else:
+            gs = _grid_size(layout)
+            cy0 = y + (layout.row_h - gs) // 2
+            x0 = layout.label_w + 12
+            for r in range(per_page):
+                cy = cy0 + r * layout.row_h
+                for idx in range(grids_per_row):
+                    gx = x0 + idx * (gs + layout.gap)
+                    if kind == "tian":
+                        draw_tian_grid(draw, gx, cy, gs)
+                    else:
+                        draw_mi_grid(draw, gx, cy, gs)
+        pages.append(img)
+    return pages
+
+
 def generate_zitie(chars, title="汉字字帖", per_page=DEFAULT_PER_PAGE,
                    grids_per_row=DEFAULT_GRIDS_PER_ROW,
                    min_practice=DEFAULT_MIN_PRACTICE,

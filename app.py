@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-汉字字帖 A4 生成器  v1.2（体验优化版）
-面向用户优化的体验：
+汉字字帖 A4 生成器  v1.3（练字功能版）
+参考 an2.net 练字工具集新增：
+  - 字帖类型：常规汉字字帖 / 看拼音写词语（听写纸）/ 拼音四线三格 / 空白模板
+  - 看拼音写词语：每词自动生成带声调拼音 + 空格田字格，重复行供反复听写
+  - 拼音四线三格：浅灰示例字母描红 + 空白格临摹，可调每行组数
+  - 空白模板：米字格 / 田字格 / 四线三格，一键打印空白练习纸
+v1.2 体验优化（保留）：
   - 自定义圆角按钮（悬停/按下/禁用反馈），告别系统默认丑按钮
   - 预览为独立可拖动子窗口，主窗口专注操作，互不干扰
   - PDF 预览体验升级：放大/缩小/适合窗口/实际大小、Ctrl+滚轮缩放、
@@ -27,8 +32,21 @@ from PIL import Image, ImageDraw, ImageTk
 import ocr_engine as ocr
 import zitie_core as core
 
-APP_VERSION = "v1.2"
+APP_VERSION = "v1.3"
 APP_NAME = "汉字字帖生成器"
+
+# ---- 字帖类型（参考 an2.net 练字工具集）----
+MODE_HANZI = "常规汉字字帖"
+MODE_TINGXIE = "看拼音写词语"
+MODE_PINYIN = "拼音四线三格"
+MODE_BLANK = "空白模板"
+MODES = [MODE_HANZI, MODE_TINGXIE, MODE_PINYIN, MODE_BLANK]
+MODE_HINTS = {
+    MODE_HANZI: "输入要练习的汉字（可多字、可换行），或点“从图片识别”自动采集",
+    MODE_TINGXIE: "每行输入一个词语，如：学校 / 老师 / 天气真好（生成拼音提示 + 空格田字格听写纸）",
+    MODE_PINYIN: "输入拼音字母或音节，用空格或换行分隔，如：a o e b p m f ai ei ui",
+    MODE_BLANK: "无需输入文字，选择模板类型后直接生成空白练习纸",
+}
 
 # ---- 主题色 ----
 COLOR_BG = "#F1F4F7"        # 窗口背景
@@ -181,6 +199,7 @@ class ZitieApp:
         self._preview_win = None
         self._preview_canvas = None
         self._preview_pinfo = None
+        self._ocr_btn = None  # 由 _build_ui 赋值
 
         self._build_style()
         self._build_ui()
@@ -231,9 +250,13 @@ class ZitieApp:
                   style="Sub.TLabel").pack(anchor="w", pady=(2, 0))
 
         # ① 输入汉字
-        in_panel = ttk.LabelFrame(outer, text="① 输入汉字", style="TLabelframe", padding=10)
+        in_panel = ttk.LabelFrame(outer, text="① 输入内容", style="TLabelframe", padding=10)
         in_panel.pack(fill="x", pady=(10, 0))
         in_panel._panel_bg = COLOR_PANEL
+
+        self.var_hint = tk.StringVar(value=MODE_HINTS[MODE_HANZI])
+        ttk.Label(in_panel, textvariable=self.var_hint, style="Muted.TLabel",
+                  wraplength=480, justify="left").pack(anchor="w", pady=(0, 4))
 
         self.txt = scrolledtext.ScrolledText(
             in_panel, height=6, font=("Microsoft YaHei", 12),
@@ -245,10 +268,11 @@ class ZitieApp:
         toolbar = ttk.Frame(in_panel, style="Panel.TFrame")
         toolbar.pack(fill="x", pady=(8, 0))
         toolbar._panel_bg = COLOR_PANEL
-        RoundButton(toolbar, text="从图片识别", command=self._on_ocr_click,
+        self._ocr_btn = RoundButton(toolbar, text="从图片识别", command=self._on_ocr_click,
                     bg="#EAF1F5", fg=COLOR_PRIMARY, hover_bg="#DCE8EE",
                     active_bg="#C9DCE4", font=("Microsoft YaHei", 9),
-                    padx=12, pady=5, radius=8, parent_bg=COLOR_PANEL).pack(side="left")
+                    padx=12, pady=5, radius=8, parent_bg=COLOR_PANEL)
+        self._ocr_btn.pack(side="left")
         RoundButton(toolbar, text="填入示例", command=self._fill_example,
                     bg="#EAF1F5", fg=COLOR_PRIMARY, hover_bg="#DCE8EE",
                     active_bg="#C9DCE4", font=("Microsoft YaHei", 9),
@@ -270,6 +294,10 @@ class ZitieApp:
         param_panel._panel_bg = COLOR_PANEL
 
         self.var_title = tk.StringVar(value="汉字字帖")
+        self.var_mode = tk.StringVar(value=MODE_HANZI)
+        self.var_repeat = tk.IntVar(value=2)
+        self.var_groups = tk.IntVar(value=5)
+        self.var_blank_kind = tk.StringVar(value="米字格")
         self.var_perpage = tk.IntVar(value=core.DEFAULT_PER_PAGE)
         self.var_grids = tk.IntVar(value=core.DEFAULT_GRIDS_PER_ROW)
         self.var_dedup = tk.BooleanVar(value=True)
@@ -286,11 +314,17 @@ class ZitieApp:
         grid.columnconfigure(1, weight=1)
         grid._panel_bg = COLOR_PANEL
 
-        ttk.Label(grid, text="标题：", style="Body.TLabel").grid(row=0, column=0, sticky="w", pady=2)
-        ttk.Entry(grid, textvariable=self.var_title, width=28).grid(row=0, column=1, sticky="we", padx=(6, 0))
+        ttk.Label(grid, text="字帖类型：", style="Body.TLabel").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Combobox(grid, textvariable=self.var_mode, values=MODES,
+                     state="readonly", width=20,
+                     font=("Microsoft YaHei", 9)).grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.var_mode.trace_add("write", lambda *a: self._on_mode_change())
+
+        ttk.Label(grid, text="标题：", style="Body.TLabel").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Entry(grid, textvariable=self.var_title, width=28).grid(row=1, column=1, sticky="we", padx=(6, 0))
 
         row1 = ttk.Frame(grid, style="Panel.TFrame")
-        row1.grid(row=1, column=0, columnspan=2, sticky="we", pady=2)
+        row1.grid(row=2, column=0, columnspan=2, sticky="we", pady=2)
         row1._panel_bg = COLOR_PANEL
         ttk.Label(row1, text="每页行数：", style="Body.TLabel").pack(side="left")
         ttk.Spinbox(row1, from_=5, to=30, textvariable=self.var_perpage,
@@ -300,7 +334,7 @@ class ZitieApp:
                     width=5).pack(side="left", padx=(4, 0))
 
         row2 = ttk.Frame(grid, style="Panel.TFrame")
-        row2.grid(row=2, column=0, columnspan=2, sticky="we", pady=2)
+        row2.grid(row=3, column=0, columnspan=2, sticky="we", pady=2)
         row2._panel_bg = COLOR_PANEL
         ttk.Label(row2, text="页边距mm：", style="Body.TLabel").pack(side="left")
         for text, var in (("上", self.var_margin_t), ("下", self.var_margin_b),
@@ -310,16 +344,36 @@ class ZitieApp:
             sp.pack(side="left", padx=(0, 3))
             sp.bind("<KeyRelease>", lambda e: self._on_margin_change())
 
+        # 按字帖类型动态显示的参数行
+        row_extra = ttk.Frame(grid, style="Panel.TFrame")
+        row_extra.grid(row=4, column=0, columnspan=2, sticky="we", pady=2)
+        row_extra._panel_bg = COLOR_PANEL
+        self.lb_repeat = ttk.Label(row_extra, text="每词重复行数：", style="Body.TLabel")
+        self.lb_repeat.grid(row=0, column=0, sticky="w")
+        self.sp_repeat = ttk.Spinbox(row_extra, from_=1, to=6, textvariable=self.var_repeat, width=4)
+        self.sp_repeat.grid(row=0, column=1, padx=(4, 14))
+        self.lb_groups = ttk.Label(row_extra, text="每行组数：", style="Body.TLabel")
+        self.lb_groups.grid(row=0, column=2, sticky="w")
+        self.sp_groups = ttk.Spinbox(row_extra, from_=2, to=8, textvariable=self.var_groups, width=4)
+        self.sp_groups.grid(row=0, column=3, padx=(4, 14))
+        self.lb_blank = ttk.Label(row_extra, text="模板：", style="Body.TLabel")
+        self.lb_blank.grid(row=0, column=4, sticky="w")
+        self.cb_blank = ttk.Combobox(row_extra, textvariable=self.var_blank_kind,
+                                     values=["米字格", "田字格", "四线三格"],
+                                     state="readonly", width=8, font=("Microsoft YaHei", 9))
+        self.cb_blank.grid(row=0, column=5, padx=(4, 0))
+        self._on_mode_change()  # 初始化显隐
+
         ttk.Checkbutton(grid, text="图片识别时自动去重（推荐）",
-                        variable=self.var_dedup).grid(row=3, column=0, columnspan=2, sticky="w", pady=(3, 0))
+                        variable=self.var_dedup).grid(row=5, column=0, columnspan=2, sticky="w", pady=(3, 0))
         ttk.Checkbutton(grid, text="标签字上方显示拼音（推荐）",
-                        variable=self.var_show_pinyin).grid(row=4, column=0, columnspan=2, sticky="w")
+                        variable=self.var_show_pinyin).grid(row=6, column=0, columnspan=2, sticky="w")
         ttk.Checkbutton(grid, text="预览中显示页边距线（打印预览）",
                         variable=self.var_show_margin,
-                        command=lambda: self._redraw_preview()).grid(row=5, column=0, columnspan=2, sticky="w")
+                        command=lambda: self._redraw_preview()).grid(row=7, column=0, columnspan=2, sticky="w")
         ttk.Checkbutton(grid, text="每个字统一占两行田字格（笔画少的自动补一整行练习格）",
                         variable=self.var_align_rows,
-                        command=lambda: self._update_printinfo()).grid(row=6, column=0, columnspan=2, sticky="w")
+                        command=lambda: self._update_printinfo()).grid(row=8, column=0, columnspan=2, sticky="w")
         ttk.Label(param_panel,
                   text="页边距会真实作用于导出的 PDF；笔画超出一行自动换行，练习格不足自动补行。",
                   style="Muted.TLabel", wraplength=480, justify="left").pack(anchor="w", pady=(6, 0))
@@ -439,27 +493,80 @@ class ZitieApp:
         text = self.txt.get("1.0", "end")
         return [c for c in text if '\u4e00' <= c <= '\u9fff']
 
+    def _read_items(self):
+        """按当前字帖类型解析输入内容"""
+        mode = self.var_mode.get()
+        text = self.txt.get("1.0", "end")
+        if mode == MODE_HANZI:
+            return [c for c in text if '\u4e00' <= c <= '\u9fff']
+        if mode == MODE_TINGXIE:
+            return [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if mode == MODE_PINYIN:
+            return [t for t in text.replace("\n", " ").split() if t.strip()]
+        return []  # 空白模板
+
     def _fill_example(self):
         self.txt.delete("1.0", "end")
-        self.txt.insert("1.0", "堂表兄弟姐妹姑阿舅爸妈我叔伯父")
+        if self.var_mode.get() == MODE_HANZI:
+            self.txt.insert("1.0", "堂表兄弟姐妹姑阿舅爸妈我叔伯父")
+        elif self.var_mode.get() == MODE_TINGXIE:
+            self.txt.insert("1.0", "学校\n老师\n同学\n天气真好")
+        elif self.var_mode.get() == MODE_PINYIN:
+            self.txt.insert("1.0", "a o e b p m f ai ei ui")
         self._update_input_stats()
 
     def _clear_input(self):
         self.txt.delete("1.0", "end")
         self._update_input_stats()
 
+    def _on_mode_change(self):
+        """字帖类型切换：动态显示参数、更新提示/标题、禁用不适用的项"""
+        mode = self.var_mode.get()
+        # 动态参数显隐
+        show_repeat = mode == MODE_TINGXIE
+        show_groups = mode == MODE_PINYIN
+        show_blank = mode == MODE_BLANK
+        for w, show in ((self.lb_repeat, show_repeat), (self.sp_repeat, show_repeat),
+                        (self.lb_groups, show_groups), (self.sp_groups, show_groups),
+                        (self.lb_blank, show_blank), (self.cb_blank, show_blank)):
+            (w.grid() if show else w.grid_remove())
+        # 提示
+        self.var_hint.set(MODE_HINTS.get(mode, ""))
+        # 标题默认值（仅当用户没改过标题时跟随）
+        default_titles = {MODE_HANZI: "汉字字帖", MODE_TINGXIE: "看拼音写词语",
+                          MODE_PINYIN: "拼音四线三格", MODE_BLANK: "空白字帖模板"}
+        if self.var_title.get() in default_titles.values():
+            self.var_title.set(default_titles[mode])
+        # OCR 仅汉字模式可用
+        if self._ocr_btn is not None:
+            self._ocr_btn.set_state("normal" if mode == MODE_HANZI else "disabled")
+        self._update_input_stats()
+        if hasattr(self, "var_printinfo"):
+            self._update_printinfo()
+
     def _update_input_stats(self):
-        chars = self._read_hanzi()
-        self.var_count.set(f"已输入 {len(chars)} 字")
-        if not chars:
-            self.var_coverage.set("输入后自动检查离线字库覆盖情况")
-            return
-        offline = sum(1 for c in chars if core.char_data_path(c))
-        need = len(chars) - offline
-        if need == 0:
-            self.var_coverage.set(f"离线字库：{offline} 字全部直接可用，无需联网")
+        mode = self.var_mode.get()
+        items = self._read_items()
+        if mode == MODE_HANZI:
+            self.var_count.set(f"已输入 {len(items)} 字")
+            if not items:
+                self.var_coverage.set("输入后自动检查离线字库覆盖情况")
+                return
+            offline = sum(1 for c in items if core.char_data_path(c))
+            need = len(items) - offline
+            if need == 0:
+                self.var_coverage.set(f"离线字库：{offline} 字全部直接可用，无需联网")
+            else:
+                self.var_coverage.set(f"离线字库 {offline} 字可用 · {need} 字将联网下载")
+        elif mode == MODE_TINGXIE:
+            self.var_count.set(f"已输入 {len(items)} 个词语")
+            self.var_coverage.set("每个词自动生成带声调拼音 + 空格田字格，重复行供反复听写")
+        elif mode == MODE_PINYIN:
+            self.var_count.set(f"已输入 {len(items)} 个拼音项")
+            self.var_coverage.set("每组 = 1 个浅灰示例格 + 空白格临摹")
         else:
-            self.var_coverage.set(f"离线字库 {offline} 字可用 · {need} 字将联网下载")
+            self.var_count.set("空白模板")
+            self.var_coverage.set("选择模板类型后直接生成，无需输入")
 
     # ---------------- 状态 ----------------
     def _set_busy(self, busy):
@@ -491,7 +598,11 @@ class ZitieApp:
                 max(0, min(60, self.var_margin_l.get())),
                 max(0, min(60, self.var_margin_r.get())),
                 bool(self.var_show_pinyin.get()),
-                bool(self.var_align_rows.get()))
+                bool(self.var_align_rows.get()),
+                self.var_mode.get(),
+                max(1, min(6, self.var_repeat.get())),
+                max(2, min(8, self.var_groups.get())),
+                self.var_blank_kind.get())
 
     def _build_paper(self, params):
         _t, _p, _g, mt, mb, ml, mr = params[:7]
@@ -536,22 +647,35 @@ class ZitieApp:
         if self._busy:
             messagebox.showinfo("提示", "有任务正在进行，请稍候。")
             return
-        chars = self._read_hanzi()
-        if not chars:
-            messagebox.showwarning("提示", "请先输入要练习的汉字。")
+        mode = self.var_mode.get()
+        items = self._read_items()
+        if mode != MODE_BLANK and not items:
+            if mode == MODE_HANZI:
+                messagebox.showwarning("提示", "请先输入要练习的汉字。")
+            elif mode == MODE_TINGXIE:
+                messagebox.showwarning("提示", "请先输入词语，每行一个。")
+            else:
+                messagebox.showwarning("提示", "请先输入拼音字母或音节。")
             return
         params = self._current_params()
         self._set_busy(True)
         self._set_progress_mode(False)
-        self._set_status(f"正在渲染 {len(chars)} 个字帖…（离线没有的字会自动下载）")
-        t = threading.Thread(target=self._render_worker, args=(chars, params, "preview"),
+        if mode == MODE_BLANK:
+            self._set_status("正在生成空白模板…")
+        else:
+            self._set_status(f"正在渲染 {len(items)} 项字帖…（离线没有的字会自动下载）")
+        t = threading.Thread(target=self._render_worker, args=(items, params, "preview"),
                              daemon=True)
         t.start()
 
-    def _render_worker(self, chars, params, purpose):
+    def _render_worker(self, items, params, purpose):
         title, per_page, grids = params[:3]
         show_pinyin = params[7]
         align_rows = params[8]
+        mode = params[9]
+        repeat = params[10]
+        groups = params[11]
+        blank_kind = params[12]
         paper = self._build_paper(params)
         try:
             def prog(done, total, ok):
@@ -561,10 +685,25 @@ class ZitieApp:
                 else:
                     self._queue.put(("progress", int(done * 100 / max(total, 1)),
                                      f"渲染页面 {done}/{total}"))
-            pages, fails = core.render_zitie(
-                chars, title=title, per_page=per_page, grids_per_row=grids,
-                paper=paper, show_pinyin=show_pinyin, align_rows=align_rows,
-                progress=prog)
+            fails = []
+            if mode == MODE_HANZI:
+                pages, fails = core.render_zitie(
+                    items, title=title, per_page=per_page, grids_per_row=grids,
+                    paper=paper, show_pinyin=show_pinyin, align_rows=align_rows,
+                    progress=prog)
+            elif mode == MODE_TINGXIE:
+                pages = core.render_tingxie(items, title=title, per_page=per_page,
+                                            grids_per_row=grids, repeat=repeat,
+                                            paper=paper, progress=prog)
+            elif mode == MODE_PINYIN:
+                pages = core.render_pinyin(items, title=title, per_page=per_page,
+                                           groups_per_row=groups, paper=paper,
+                                           progress=prog)
+            else:
+                kind_map = {"米字格": "mi", "田字格": "tian", "四线三格": "pinyin"}
+                pages = core.render_blank(kind_map.get(blank_kind, "mi"),
+                                          title=title, per_page=per_page,
+                                          grids_per_row=grids, paper=paper)
             self._queue.put((purpose + "_result", pages, fails, params))
         except Exception as e:
             self._queue.put(("error", f"渲染失败：{e}"))
@@ -588,8 +727,10 @@ class ZitieApp:
         if self._busy:
             messagebox.showinfo("提示", "有任务正在进行，请稍候。")
             return
-        if not self._read_hanzi():
-            messagebox.showwarning("提示", "请先输入要练习的汉字。")
+        mode = self.var_mode.get()
+        items = self._read_items()
+        if mode != MODE_BLANK and not items:
+            messagebox.showwarning("提示", "请先输入内容再导出。")
             return
         params = self._current_params()
         if self._pages_img and self._preview_params == params:
@@ -598,7 +739,7 @@ class ZitieApp:
         self._set_busy(True)
         self._set_progress_mode(False)
         self._set_status("正在按最新参数渲染…（完成后自动导出）")
-        t = threading.Thread(target=self._render_worker, args=(self._read_hanzi(), params, "export"),
+        t = threading.Thread(target=self._render_worker, args=(items, params, "export"),
                              daemon=True)
         t.start()
 
