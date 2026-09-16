@@ -171,6 +171,20 @@ C_GRID_BORDER = (200, 145, 145)  # 田字格外框
 C_GRID_AUX = (210, 158, 158)     # 米字辅助线（比外框浅一档，但打印清晰可见）
 C_WHITE = (255, 255, 255)
 
+# 田字格配色方案（border 外框略深、aux 辅助线浅一档，均保证 300dpi 打印清晰）
+GRID_COLORS = {
+    "红色": ((200, 145, 145), (210, 158, 158)),
+    "蓝色": ((120, 155, 205), (168, 188, 222)),
+    "黑色": ((108, 108, 108), (148, 148, 148)),
+    "绿色": ((128, 178, 128), (168, 203, 168)),
+}
+DEFAULT_GRID_COLOR = "红色"
+
+
+def _grid_colors(name):
+    """按名称取 (border, aux) 田字格配色，未知名称回退红色"""
+    return GRID_COLORS.get(name, GRID_COLORS[DEFAULT_GRID_COLOR])
+
 # ============ 默认排版参数（A4 300dpi） ============
 DEFAULT_A4 = dict(
     width=2480, height=3508,          # A4 @300dpi
@@ -288,15 +302,15 @@ def draw_dashed(draw, x1, y1, x2, y2, color, dash=5, gap=4, width=1):
         p = e + gap
 
 
-def draw_mi_grid(draw, x, y, size):
-    draw.rectangle([x, y, x + size, y + size], outline=C_GRID_BORDER, width=2)
+def draw_mi_grid(draw, x, y, size, border=C_GRID_BORDER, aux=C_GRID_AUX):
+    draw.rectangle([x, y, x + size, y + size], outline=border, width=2)
     # 米字虚线：dash 加长、线宽 2px，保证 300dpi 打印清晰可见
-    draw_dashed(draw, x, y + size // 2, x + size, y + size // 2, C_GRID_AUX,
+    draw_dashed(draw, x, y + size // 2, x + size, y + size // 2, aux,
                 dash=9, gap=5, width=2)
-    draw_dashed(draw, x + size // 2, y, x + size // 2, y + size, C_GRID_AUX,
+    draw_dashed(draw, x + size // 2, y, x + size // 2, y + size, aux,
                 dash=9, gap=5, width=2)
-    draw_dashed(draw, x, y, x + size, y + size, C_GRID_AUX, dash=9, gap=5, width=2)
-    draw_dashed(draw, x + size, y, x, y + size, C_GRID_AUX, dash=9, gap=5, width=2)
+    draw_dashed(draw, x, y, x + size, y + size, aux, dash=9, gap=5, width=2)
+    draw_dashed(draw, x + size, y, x, y + size, aux, dash=9, gap=5, width=2)
 
 
 def fill_stroke(draw, sps, color):
@@ -458,8 +472,10 @@ def _text_metrics(draw, text, font):
     return bbox[2] - bbox[0], bbox[3] - bbox[1], bbox[1]
 
 
-def render_stroke_row_partial(layout, ch, start, label_show=False, show_pinyin=True):
+def render_stroke_row_partial(layout, ch, start, label_show=False, show_pinyin=True,
+                              grid_color=DEFAULT_GRID_COLOR):
     """渲染一行：从第 start 笔开始连续 grids_per_row 个格子"""
+    border, aux = _grid_colors(grid_color)
     row_w = layout.content_w
     row_h = layout.row_h
     img = Image.new("RGB", (row_w, row_h), C_WHITE)
@@ -525,7 +541,7 @@ def render_stroke_row_partial(layout, ch, start, label_show=False, show_pinyin=T
 
     for idx in range(grids):
         gx = x0 + idx * (gs + layout.gap)
-        draw_mi_grid(draw, gx, cy, gs)
+        draw_mi_grid(draw, gx, cy, gs, border=border, aux=aux)
         si = start + idx
         if si >= n:
             continue  # 空白练习格
@@ -543,8 +559,9 @@ def render_stroke_row_partial(layout, ch, start, label_show=False, show_pinyin=T
     return img
 
 
-def render_practice_row(layout):
+def render_practice_row(layout, grid_color=DEFAULT_GRID_COLOR):
     """整行空白练习格（无文字）"""
+    border, aux = _grid_colors(grid_color)
     row_w = layout.content_w
     row_h = layout.row_h
     img = Image.new("RGB", (row_w, row_h), C_WHITE)
@@ -557,11 +574,12 @@ def render_practice_row(layout):
     x0 = layout.label_w + 12
     for idx in range(grids):
         gx = x0 + idx * (gs + layout.gap)
-        draw_mi_grid(draw, gx, cy, gs)
+        draw_mi_grid(draw, gx, cy, gs, border=border, aux=aux)
     return img
 
 
-def render_char_block(layout, ch, show_pinyin=True, align_rows=False):
+def render_char_block(layout, ch, show_pinyin=True, align_rows=False,
+                      grid_color=DEFAULT_GRID_COLOR):
     """渲染一个字块：笔顺多行显示，末尾练习格不足时补练习行。
     align_rows=True：所有字统一至少占两行（笔画少的多给一整行空白练习格）"""
     n = get_stroke_count(ch)
@@ -576,15 +594,17 @@ def render_char_block(layout, ch, show_pinyin=True, align_rows=False):
     for r in range(stroke_rows):
         row_img = render_stroke_row_partial(layout, ch, r * gpr,
                                             label_show=(r == 0),
-                                            show_pinyin=show_pinyin)
+                                            show_pinyin=show_pinyin,
+                                            grid_color=grid_color)
         block.paste(row_img, (0, r * layout.row_h))
     for r in range(stroke_rows, lines):
-        block.paste(render_practice_row(layout), (0, r * layout.row_h))
+        block.paste(render_practice_row(layout, grid_color=grid_color),
+                    (0, r * layout.row_h))
     return block
 
 
 def render_page(layout, chars_page, page_num, total_pages, title, show_pinyin=True,
-                align_rows=False):
+                align_rows=False, grid_color=DEFAULT_GRID_COLOR):
     img = Image.new("RGB", (layout.w, layout.h), C_WHITE)
     draw = ImageDraw.Draw(img)
     font_title = load_font(36)
@@ -600,7 +620,7 @@ def render_page(layout, chars_page, page_num, total_pages, title, show_pinyin=Tr
     y = layout.margin_t + layout.title_h - 20
     for ch in chars_page:
         block = render_char_block(layout, ch, show_pinyin=show_pinyin,
-                                  align_rows=align_rows)
+                                  align_rows=align_rows, grid_color=grid_color)
         img.paste(block, (layout.margin_l, y))
         y += block.size[1]
     return img
@@ -610,7 +630,8 @@ def render_page(layout, chars_page, page_num, total_pages, title, show_pinyin=Tr
 def render_zitie(chars, title="汉字字帖", per_page=DEFAULT_PER_PAGE,
                  grids_per_row=DEFAULT_GRIDS_PER_ROW,
                  min_practice=DEFAULT_MIN_PRACTICE,
-                 paper=None, show_pinyin=True, align_rows=False, progress=None):
+                 paper=None, show_pinyin=True, align_rows=False,
+                 grid_color=DEFAULT_GRID_COLOR, progress=None):
     """
     只渲染页面图片（不写 PDF）。
     - 返回: (pages_img 列表[PIL], 失败字列表)
@@ -635,7 +656,8 @@ def render_zitie(chars, title="汉字字帖", per_page=DEFAULT_PER_PAGE,
     pages_img = []
     for p, page_chars in enumerate(pages_chars):
         img = render_page(layout, page_chars, p + 1, n_pages, title,
-                          show_pinyin=show_pinyin, align_rows=align_rows)
+                          show_pinyin=show_pinyin, align_rows=align_rows,
+                          grid_color=grid_color)
         pages_img.append(img)
         if progress:
             progress(p + 1, n_pages, 0)
@@ -674,8 +696,10 @@ def _page_base(layout, title, page_num, total_pages):
     return img, draw, y
 
 
-def _render_tingxie_word_block(layout, word, repeat, first_has_pinyin=True):
+def _render_tingxie_word_block(layout, word, repeat, first_has_pinyin=True,
+                               grid_color=DEFAULT_GRID_COLOR):
     """一个词语占 repeat 行：第 1 行 标签区拼音 + 空格田字格；重复行纯空格格"""
+    border, aux = _grid_colors(grid_color)
     chars = list(word)
     block = Image.new("RGB", (layout.content_w, layout.row_h * repeat), C_WHITE)
     gs = _grid_size(layout)
@@ -706,14 +730,15 @@ def _render_tingxie_word_block(layout, word, repeat, first_has_pinyin=True):
         # 词的字数个空格田字格（从左侧开始）
         for i in range(len(chars)):
             gx = x0 + i * (gs + layout.gap)
-            draw_mi_grid(draw, gx, cy, gs)
+            draw_mi_grid(draw, gx, cy, gs, border=border, aux=aux)
         block.paste(row, (0, r * layout.row_h))
     return block
 
 
 def render_tingxie(words, title="看拼音写词语", per_page=DEFAULT_PER_PAGE,
                    grids_per_row=DEFAULT_GRIDS_PER_ROW,
-                   repeat=2, paper=None, progress=None):
+                   repeat=2, paper=None, grid_color=DEFAULT_GRID_COLOR,
+                   progress=None):
     """看拼音写词语（听写纸）
     words: 词语列表（如 ["学校", "老师"]）。每词占 repeat 行：
     第 1 行 标签区显示带声调拼音 + 空格田字格；重复行纯空格田字格。"""
@@ -730,7 +755,8 @@ def render_tingxie(words, title="看拼音写词语", per_page=DEFAULT_PER_PAGE,
     for pi, pws in enumerate(pages_words):
         img, _d, y = _page_base(layout, title, pi + 1, n_pages)
         for w in pws:
-            block = _render_tingxie_word_block(layout, w, repeat)
+            block = _render_tingxie_word_block(layout, w, repeat,
+                                               grid_color=grid_color)
             img.paste(block, (layout.margin_l, y))
             y += block.size[1]
         pages.append(img)
@@ -749,12 +775,12 @@ def draw_4line3grid(draw, x, y, w, h, color=C_GRID_BORDER):
 
 
 def _render_pinyin_item(draw, x, y, w, h, letter, example=True, blank=2,
-                        gap=8):
+                        gap=8, color=C_GRID_BORDER):
     """画一个拼音单元：1 个示例四线三格（浅灰字母描红）+ blank 个空白格。
     返回下一个 x 位置"""
     for i in range(1 + blank):
         gx = x + i * (w + gap)
-        draw_4line3grid(draw, gx, y, w, h)
+        draw_4line3grid(draw, gx, y, w, h, color=color)
         if i == 0 and example and letter:
             font = load_font(int(h * 0.62))
             bbox = draw.textbbox((0, 0), letter, font=font)
@@ -768,10 +794,12 @@ def _render_pinyin_item(draw, x, y, w, h, letter, example=True, blank=2,
 
 
 def render_pinyin(items, title="拼音四线三格", per_page=DEFAULT_PER_PAGE,
-                  groups_per_row=5, blank=2, paper=None, progress=None):
+                  groups_per_row=5, blank=2, paper=None,
+                  grid_color=DEFAULT_GRID_COLOR, progress=None):
     """拼音四线三格书写练习
     items: 拼音项列表（字母或带声调音节，如 ["a","o","e","b","p","ai"]）
     每组 = 1 个示例格（浅灰字母）+ blank 个空白格；每行 groups_per_row 组"""
+    border, _aux = _grid_colors(grid_color)
     items = [str(i).strip() for i in items if str(i).strip()]
     pages_items, cur, used = [], [], 0
     for it in items:
@@ -795,7 +823,8 @@ def render_pinyin(items, title="拼音四线三格", per_page=DEFAULT_PER_PAGE,
             gx = 6
             gy = (layout.row_h - gh) // 2
             for g in range(groups_per_row):
-                gx = _render_pinyin_item(draw, gx, gy, gw, gh, it, blank=blank)
+                gx = _render_pinyin_item(draw, gx, gy, gw, gh, it, blank=blank,
+                                         color=border)
                 gx += (unit_w - (1 + blank) * (gw + 8)) / 2
             img.paste(row, (layout.margin_l, y))
             y += row.size[1]
@@ -805,19 +834,20 @@ def render_pinyin(items, title="拼音四线三格", per_page=DEFAULT_PER_PAGE,
     return pages
 
 
-def draw_tian_grid(draw, x, y, size):
+def draw_tian_grid(draw, x, y, size, border=C_GRID_BORDER, aux=C_GRID_AUX):
     """田字格：外框 + 横竖中线（无对角虚线）"""
-    draw.rectangle([x, y, x + size, y + size], outline=C_GRID_BORDER, width=2)
-    draw_dashed(draw, x, y + size // 2, x + size, y + size // 2, C_GRID_AUX,
+    draw.rectangle([x, y, x + size, y + size], outline=border, width=2)
+    draw_dashed(draw, x, y + size // 2, x + size, y + size // 2, aux,
                 dash=9, gap=5, width=2)
-    draw_dashed(draw, x + size // 2, y, x + size // 2, y + size, C_GRID_AUX,
+    draw_dashed(draw, x + size // 2, y, x + size // 2, y + size, aux,
                 dash=9, gap=5, width=2)
 
 
 def render_blank(kind="mi", title="空白字帖模板", per_page=DEFAULT_PER_PAGE,
                  grids_per_row=DEFAULT_GRIDS_PER_ROW,
-                 pages_count=1, paper=None):
+                 pages_count=1, paper=None, grid_color=DEFAULT_GRID_COLOR):
     """空白模板：kind = 'mi' 米字格 / 'tian' 田字格 / 'pinyin' 四线三格"""
+    border, aux = _grid_colors(grid_color)
     layout = Layout(per_page=per_page, grids_per_row=grids_per_row, paper=paper)
     pages = []
     for pi in range(pages_count):
@@ -833,7 +863,7 @@ def render_blank(kind="mi", title="空白字帖模板", per_page=DEFAULT_PER_PAG
                 gy = y + r * row_h + (row_h - gh) // 2
                 gx = 6
                 for _g in range(groups):
-                    draw_4line3grid(draw, gx, gy, gw, gh)
+                    draw_4line3grid(draw, gx, gy, gw, gh, color=border)
                     gx += unit_w
         else:
             gs = _grid_size(layout)
@@ -844,9 +874,9 @@ def render_blank(kind="mi", title="空白字帖模板", per_page=DEFAULT_PER_PAG
                 for idx in range(grids_per_row):
                     gx = x0 + idx * (gs + layout.gap)
                     if kind == "tian":
-                        draw_tian_grid(draw, gx, cy, gs)
+                        draw_tian_grid(draw, gx, cy, gs, border=border, aux=aux)
                     else:
-                        draw_mi_grid(draw, gx, cy, gs)
+                        draw_mi_grid(draw, gx, cy, gs, border=border, aux=aux)
         pages.append(img)
     return pages
 

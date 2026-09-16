@@ -1,7 +1,12 @@
-# 汉字字帖 A4 生成器（v1.3）
+﻿# 汉字字帖 A4 生成器（v1.3.1）
 
 一个带图形界面的汉字字帖生成程序：输入汉字（或从图片识别文字），一键生成带笔顺的
 田字格 A4 字帖 PDF，并支持分页预览。
+
+**v1.3.1 更新**：
+- **默认两行排版**：所有字统一占两行田字格（对齐排版，笔画少的自动补一整行练习格）
+- **田字格颜色切换**：红 / 蓝 / 黑 / 绿，格子边框和米字辅助线跟随所选颜色，
+  笔顺的"当前笔"红色提示保持不变（教学惯例）
 
 **v1.3 练字功能**（参考 [an2.net 练字工具集](https://www.an2.net/zi/)）：
 - **字帖类型切换**：常规汉字字帖 / 看拼音写词语（听写纸）/ 拼音四线三格 / 空白模板
@@ -60,7 +65,7 @@
 
 ### 方式一：直接使用打包版（推荐，可分发）
 
-`dist\汉字字帖生成器_v1.3.exe` 是**免安装的单文件程序**（约 111MB），已内置 Python 解释器、
+`dist\汉字字帖生成器_v1.3.1.exe` 是**免安装的单文件程序**（约 111MB），已内置 Python 解释器、
 全部依赖、OCR 模型，以及**完整离线字库（9534 个汉字笔画数据）**。
 
 **双击即可运行，无需安装 Python、无需安装任何库、绝大多数汉字离线即可生成**。
@@ -102,7 +107,7 @@ pip install -r requirements.txt
 ```bash
 python _make_zip.py                       # 把 hanzi_data 打成 hanzi_data.zip（仅需重打一次）
 pip install pyinstaller
-python -m PyInstaller --noconfirm --onefile --windowed --name 汉字字帖生成器_v1.3 \
+python -m PyInstaller --noconfirm --onefile --windowed --name 汉字字帖生成器_v1.3.1 \
   --add-data "hanzi_data.zip;." \
   --add-data "pinyin.json;." \
   --collect-data rapidocr_onnxruntime --collect-binaries rapidocr_onnxruntime \
@@ -122,3 +127,4 @@ python -m PyInstaller --noconfirm --onefile --windowed --name 汉字字帖生成
 
 - 笔画数据来自 [hanzi-writer-data](https://github.com/chanind/hanzi-writer-data)（MIT 许可）。
 - OCR 引擎为 [RapidOCR](https://github.com/RapidAI/RapidOCR)，首次识别需加载模型，约数秒。
+

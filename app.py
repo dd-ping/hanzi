@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-汉字字帖 A4 生成器  v1.3（练字功能版）
-参考 an2.net 练字工具集新增：
+汉字字帖 A4 生成器  v1.3.1
+v1.3.1 新增：
+  - 默认排版改为"每个字统一占两行田字格"（对齐排版，即两行字帖版式）
+  - 田字格颜色切换：红 / 蓝 / 黑 / 绿（格子边框+辅助线随颜色，笔顺红笔不变）
+v1.3 练字功能（参考 an2.net 练字工具集）：
   - 字帖类型：常规汉字字帖 / 看拼音写词语（听写纸）/ 拼音四线三格 / 空白模板
   - 看拼音写词语：每词自动生成带声调拼音 + 空格田字格，重复行供反复听写
   - 拼音四线三格：浅灰示例字母描红 + 空白格临摹，可调每行组数
@@ -32,7 +35,7 @@ from PIL import Image, ImageDraw, ImageTk
 import ocr_engine as ocr
 import zitie_core as core
 
-APP_VERSION = "v1.3"
+APP_VERSION = "v1.3.1"
 APP_NAME = "汉字字帖生成器"
 
 # ---- 字帖类型（参考 an2.net 练字工具集）----
@@ -307,7 +310,8 @@ class ZitieApp:
         self.var_margin_r = tk.DoubleVar(value=8)
         self.var_show_margin = tk.BooleanVar(value=True)
         self.var_show_pinyin = tk.BooleanVar(value=True)
-        self.var_align_rows = tk.BooleanVar(value=False)
+        self.var_align_rows = tk.BooleanVar(value=True)  # 默认统一两行对齐（图2排版）
+        self.var_grid_color = tk.StringVar(value=core.DEFAULT_GRID_COLOR)
 
         grid = ttk.Frame(param_panel, style="Panel.TFrame")
         grid.pack(fill="x")
@@ -331,7 +335,12 @@ class ZitieApp:
                     width=5).pack(side="left", padx=(4, 14))
         ttk.Label(row1, text="每行格数：", style="Body.TLabel").pack(side="left")
         ttk.Spinbox(row1, from_=5, to=20, textvariable=self.var_grids,
-                    width=5).pack(side="left", padx=(4, 0))
+                    width=5).pack(side="left", padx=(4, 14))
+        ttk.Label(row1, text="格子颜色：", style="Body.TLabel").pack(side="left")
+        ttk.Combobox(row1, textvariable=self.var_grid_color,
+                     values=list(core.GRID_COLORS.keys()),
+                     state="readonly", width=6, font=("Microsoft YaHei", 9)
+                     ).pack(side="left", padx=(4, 0))
 
         row2 = ttk.Frame(grid, style="Panel.TFrame")
         row2.grid(row=3, column=0, columnspan=2, sticky="we", pady=2)
@@ -602,7 +611,8 @@ class ZitieApp:
                 self.var_mode.get(),
                 max(1, min(6, self.var_repeat.get())),
                 max(2, min(8, self.var_groups.get())),
-                self.var_blank_kind.get())
+                self.var_blank_kind.get(),
+                self.var_grid_color.get())
 
     def _build_paper(self, params):
         _t, _p, _g, mt, mb, ml, mr = params[:7]
@@ -676,6 +686,7 @@ class ZitieApp:
         repeat = params[10]
         groups = params[11]
         blank_kind = params[12]
+        grid_color = params[13]
         paper = self._build_paper(params)
         try:
             def prog(done, total, ok):
@@ -690,20 +701,22 @@ class ZitieApp:
                 pages, fails = core.render_zitie(
                     items, title=title, per_page=per_page, grids_per_row=grids,
                     paper=paper, show_pinyin=show_pinyin, align_rows=align_rows,
-                    progress=prog)
+                    grid_color=grid_color, progress=prog)
             elif mode == MODE_TINGXIE:
                 pages = core.render_tingxie(items, title=title, per_page=per_page,
                                             grids_per_row=grids, repeat=repeat,
-                                            paper=paper, progress=prog)
+                                            paper=paper, grid_color=grid_color,
+                                            progress=prog)
             elif mode == MODE_PINYIN:
                 pages = core.render_pinyin(items, title=title, per_page=per_page,
                                            groups_per_row=groups, paper=paper,
-                                           progress=prog)
+                                           grid_color=grid_color, progress=prog)
             else:
                 kind_map = {"米字格": "mi", "田字格": "tian", "四线三格": "pinyin"}
                 pages = core.render_blank(kind_map.get(blank_kind, "mi"),
                                           title=title, per_page=per_page,
-                                          grids_per_row=grids, paper=paper)
+                                          grids_per_row=grids, paper=paper,
+                                          grid_color=grid_color)
             self._queue.put((purpose + "_result", pages, fails, params))
         except Exception as e:
             self._queue.put(("error", f"渲染失败：{e}"))
